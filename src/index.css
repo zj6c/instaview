@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; background: #0a0a0a; color: #f0f0f0; direction: rtl; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 4px; }
+
+@layer utilities {
+  .text-ig-grad {
+    background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+}
+
+@keyframes bubblePop {
+  from { opacity: 0; transform: translateY(5px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+.bubble-anim { animation: bubblePop .14s ease both; }
+
+.glass {
+  background: rgba(15,15,15,0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.glow-pink { box-shadow: 0 0 40px rgba(220,39,67,0.2); }
+.glow-blue { box-shadow: 0 0 20px rgba(55,151,240,0.15); }
+
+.input-field {
+  width: 100%;
+  background: #1a1a1a;
+  border: 1px solid #252525;
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 14px;
+  color: #f0f0f0;
+  outline: none;
+  transition: all 0.2s;
+}
+.input-field::placeholder { color: #555; }
+.input-field:focus { border-color: #3797f0; box-shadow: 0 0 0 3px rgba(55,151,240,0.1); }
+
+.avatar-ring { padding: 2px; background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); border-radius: 9999px; }
+.avatar-ring-inner { background: #111; border-radius: 9999px; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
