@@ -13,7 +13,6 @@ export function parseTS(s) {
   return new Date(+m[3], mon, +m[2], h, +m[5], +(m[6]||0)).getTime()
 }
 
-// Get just the filename from any path
 function basename(src) {
   if (!src) return ''
   return src.split(/[/\\]/).pop().split('?')[0]
@@ -21,15 +20,14 @@ function basename(src) {
 
 function ct(t) { return (t||'').replace(/\s+/g,' ').trim() }
 
-// Normalize title: remove diacritics, emoji, spaces for matching
 export function normTitle(s) {
   if (!s) return ''
   let out = ''
   for (const ch of s.normalize('NFD')) {
     const cp = ch.codePointAt(0)
-    if (cp >= 0x0300 && cp <= 0x036F) continue  // diacritics
-    if (cp >= 0x1F000) continue                   // emoji
-    if (cp >= 0x2600 && cp <= 0x27BF) continue   // misc symbols
+    if (cp >= 0x0300 && cp <= 0x036F) continue
+    if (cp >= 0x1F000) continue
+    if (cp >= 0x2600 && cp <= 0x27BF) continue
     if (/\s/.test(ch)) continue
     out += ch
   }
@@ -40,41 +38,30 @@ export function parseIG(html, pfx) {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const blocks = doc.querySelectorAll('.pam')
 
-  // ── Conversation name ─────────────────────────────────────────────────────
   let convName = ''
   const h1 = doc.querySelector('h1')
   if (h1) convName = ct(h1.textContent)
-  if (!convName) {
-    const t = doc.querySelector('title')
-    if (t) convName = ct(t.textContent)
-  }
+  if (!convName) { const t = doc.querySelector('title'); if (t) convName = ct(t.textContent) }
   if (!convName) convName = 'محادثة'
 
-  // ── Detect outgoing sender ────────────────────────────────────────────────
-  // Instagram exports: "You sent an attachment." or "You sent" appears in
-  // the body of blocks where the h2 is THE OUTGOING USER
   let outName = null
   blocks.forEach(b => {
     if (outName) return
     const h2   = b.querySelector('h2')
     const body = b.querySelector('[class*="a6-p"]')
     if (!h2 || !body) return
-    if (/You sent/i.test(body.textContent))
-      outName = ct(h2.textContent)
+    if (/You sent/i.test(body.textContent)) outName = ct(h2.textContent)
   })
-  // Fallback: second unique sender in file
   if (!outName) {
     const seen = []
     blocks.forEach(b => {
-      const h2 = b.querySelector('h2')
-      if (!h2) return
+      const h2 = b.querySelector('h2'); if (!h2) return
       const s = ct(h2.textContent)
       if (s && !seen.includes(s)) seen.push(s)
     })
     if (seen.length >= 2) outName = seen[1]
   }
 
-  // ── Parse messages ────────────────────────────────────────────────────────
   const msgs = []
   blocks.forEach((b, idx) => {
     const h2     = b.querySelector('h2')
@@ -94,43 +81,41 @@ export function parseIG(html, pfx) {
     }
 
     const bText = ct(bodyEl.textContent)
-
-    // System messages
     if (/^(Liked a message|Reacted .* to your message|You missed a video chat|.*started a video chat)$/i.test(bText)) {
       msg.isSystem = true; msg.text = bText; msgs.push(msg); return
     }
 
-    // Reactions
-    bodyEl.querySelectorAll('[class*="a6-q"] li span').forEach(r =>
-      msg.reactions.push(ct(r.textContent))
-    )
+    bodyEl.querySelectorAll('[class*="a6-q"] li span').forEach(r => msg.reactions.push(ct(r.textContent)))
 
-    // ── Audio ──
+    // Audio
     const aud = bodyEl.querySelector('audio')
     if (aud) {
       const src = aud.getAttribute('src') || ''
-      msg.media = { type: 'audio', ref: basename(src) }
+      const ref = basename(src)
+      msg.media = { type: 'audio', ref }
       msgs.push(msg); return
     }
 
-    // ── Video ──
+    // Video
     const vid = bodyEl.querySelector('video')
     if (vid) {
-      const src = vid.getAttribute('src') || ''
-      msg.media = { type: 'video', ref: basename(src) }
+      const src = vid.getAttribute('src') || vid.querySelector('source')?.getAttribute('src') || ''
+      const ref = basename(src)
+      msg.media = { type: 'video', ref }
       msgs.push(msg); return
     }
 
-    // ── Local images (relative path = not http) ──
+    // Images — IMPORTANT: some have no extension (Instagram bug)
     for (const im of bodyEl.querySelectorAll('img')) {
       const src = im.getAttribute('src') || ''
-      if (src && !src.startsWith('http')) {
-        msg.media = { type: 'image', ref: basename(src) }
+      if (src && !src.startsWith('http') && !src.includes('Instagram-Logo')) {
+        const ref = basename(src)
+        msg.media = { type: 'image', ref }
         msgs.push(msg); return
       }
     }
 
-    // ── Instagram reels / posts ──
+    // Instagram reels/posts
     bodyEl.querySelectorAll('a[href*="instagram.com"]').forEach(a => {
       const url = a.getAttribute('href') || ''
       const par = a.parentElement; if (!par) return
@@ -148,67 +133,60 @@ export function parseIG(html, pfx) {
           else if (!c.querySelector('a') && t.length < 60 && i === 1) username = t
         })
       }
-      msg.reels.push({
-        url,
-        caption: caption.replace(/sent an attachment\.?/i, '').trim(),
-        username
-      })
+      msg.reels.push({ url, caption: caption.replace(/sent an attachment\.?/i,'').trim(), username })
     })
 
-    // ── External URLs ──
     bodyEl.querySelectorAll('a[href]').forEach(a => {
       const url = a.getAttribute('href') || ''
-      if (url.startsWith('http') && !url.includes('instagram.com'))
-        msg.urls.push(url)
+      if (url.startsWith('http') && !url.includes('instagram.com')) msg.urls.push(url)
     })
 
-    // ── Text content ──
     let txt = ''
-    bodyEl.querySelectorAll('span[dir="rtl"],span[dir="ltr"]').forEach(s => {
-      txt += s.textContent + ' '
-    })
+    bodyEl.querySelectorAll('span[dir="rtl"],span[dir="ltr"]').forEach(s => { txt += s.textContent + ' ' })
     if (!txt.trim()) {
       const w = document.createTreeWalker(bodyEl, NodeFilter.SHOW_TEXT)
       while (w.nextNode()) {
         const t = w.currentNode.textContent.trim()
-        if (t && !/sent an attachment/i.test(t) && !/You sent/i.test(t))
-          txt += t + ' '
+        if (t && !/sent an attachment/i.test(t) && !/You sent/i.test(t)) txt += t + ' '
       }
     }
-    msg.text = txt
-      .replace(/sent an attachment\.?/gi, '')
-      .replace(/You sent an attachment\.?/gi, '')
-      .trim()
-
-    if (msg.text || msg.media || msg.reels.length || msg.urls.length)
-      msgs.push(msg)
+    msg.text = txt.replace(/sent an attachment\.?/gi,'').replace(/You sent an attachment\.?/gi,'').trim()
+    if (msg.text || msg.media || msg.reels.length || msg.urls.length) msgs.push(msg)
   })
 
   return { convName, outName, msgs }
 }
 
-// ── Smart blob resolver ───────────────────────────────────────────────────────
-// Instagram media filenames are pure numbers: 2946744288849542.mp4
-// We try: exact → no-ext → numeric ID prefix
-export function resolveBlob(blobs, _unused, ref) {
+// ── Smart blob resolver ────────────────────────────────────────────────────────
+// Handles: exact name, no-ext, numeric ID, no-ext numeric (Instagram photos without extension)
+export function resolveBlob(blobs, _b2, ref) {
   if (!ref || !blobs) return ''
 
-  // 1. Exact match
+  // 1. Exact match  e.g. "2946744288849542.mp4"
   if (blobs[ref]) return blobs[ref]
 
-  // 2. Without extension
-  const base = ref.replace(/\.[^.]+$/, '')
-  if (blobs[base]) return blobs[base]
+  // 2. Without extension  e.g. "2946744288849542"
+  const noExt = ref.replace(/\.[^.]+$/, '')
+  if (blobs[noExt]) return blobs[noExt]
 
-  // 3. Numeric ID: Instagram names are like "2946744288849542.mp4"
-  //    User may upload file with same number but different extension
-  const numMatch = ref.match(/^(\d{8,})/)
+  // 3. Numeric ID: ref might be "2946744288849542" (no ext stored as key)
+  //    OR ref might be "2946744288849542.jpg" but file uploaded as "2946744288849542"
+  const numMatch = noExt.match(/^(\d{6,})$/)
   if (numMatch) {
     const num = numMatch[1]
-    // Direct numeric key stored when file was loaded
-    if (blobs[num]) return blobs[num]
-    // Scan all keys for one that contains this number
+    // Check all blob keys for this number
     for (const [k, v] of Object.entries(blobs)) {
+      const kNoExt = k.replace(/\.[^.]+$/, '')
+      if (kNoExt === num || k === num) return v
+    }
+  }
+
+  // 4. Partial numeric match (longer numbers containing shorter)
+  const numInRef = ref.match(/(\d{8,})/)
+  if (numInRef) {
+    const num = numInRef[1]
+    for (const [k, v] of Object.entries(blobs)) {
+      if (k.replace(/\.[^.]+$/, '') === num) return v
       if (k.includes(num)) return v
     }
   }

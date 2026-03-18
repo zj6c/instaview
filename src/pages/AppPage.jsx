@@ -9,6 +9,7 @@ import {
   uploadFile, getSignedUrl
 } from '../lib/db'
 import Bubble from '../components/Bubble'
+import VirtualMessages from '../components/VirtualMessages'
 import Lightbox from '../components/Lightbox'
 import {
   LogOut, Plus, Trash2, Upload,
@@ -193,26 +194,31 @@ export default function AppPage() {
     try {
       const entries = {}
       await Promise.all(arr.map(async f => {
-        // Local blob URL — instant
+        // Local blob URL — instant playback
         const localUrl = URL.createObjectURL(f)
-        entries[f.name] = localUrl
-        entries[f.name.replace(/\.[^.]+$/, '')] = localUrl
-        const num = f.name.match(/^(\d{8,})/)
-        if (num) {
-          entries[num[1]] = localUrl
-          // Common extensions
-          ;['.mp4','.mp3','.m4a','.ogg','.opus','.jpg','.jpeg','.png','.mov'].forEach(ext => {
-            entries[num[1] + ext] = localUrl
+        const name     = f.name
+        const noExt    = name.replace(/\.[^.]+$/, '')
+        
+        // Store by all possible key formats Instagram might use
+        entries[name]  = localUrl   // exact: "2946744288849542.mp4"
+        entries[noExt] = localUrl   // no ext: "2946744288849542"
+        
+        // If purely numeric (Instagram IDs), store with all common extensions
+        // because Instagram photos sometimes have no extension in HTML
+        if (/^\d{8,}$/.test(noExt)) {
+          ;['.mp4','.mp3','.m4a','.ogg','.opus','.jpg','.jpeg','.png','.gif','.webp','.mov','.webm'].forEach(ext => {
+            entries[noExt + ext] = localUrl
           })
         }
-        // Upload to Supabase Storage in background
+        
+        // Upload to Supabase in background (non-blocking)
         if (hasSupabase) {
-          const url = await uploadFile(f, activeId)
-          if (url) {
-            entries[f.name] = url
-            entries[f.name.replace(/\.[^.]+$/, '')] = url
-            if (num) entries[num[1]] = url
-          }
+          uploadFile(f, activeId).then(url => {
+            if (url) setBlobsMap(p => ({
+              ...p,
+              [activeId]: { ...(p[activeId]||{}), [name]: url, [noExt]: url }
+            }))
+          }).catch(() => {})
         }
       }))
 
@@ -431,14 +437,19 @@ export default function AppPage() {
               </button>
             </div>
 
-            {/* Messages */}
-            <div ref={bodyRef} className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-0.5 scrollbar-none">
-              {query && filteredMsgs.length === 0 ? (
-                <div className="flex-1 flex items-center justify-center text-ig-muted text-sm py-20">
-                  لا توجد نتائج لـ "{query}"
-                </div>
-              ) : renderMessages(filteredMsgs, activeConv.outName, activeBlobs, setLightbox)}
-            </div>
+            {/* Messages — VirtualScroll for performance */}
+            {query && filteredMsgs.length === 0 ? (
+              <div className="flex-1 flex items-center justify-center text-ig-muted text-sm py-20">
+                لا توجد نتائج لـ "{query}"
+              </div>
+            ) : (
+              <VirtualMessages
+                msgs={filteredMsgs}
+                outName={activeConv.outName}
+                blobs={activeBlobs}
+                setLightbox={setLightbox}
+              />
+            )}
 
             {/* Footer */}
             <div className="relative flex items-center gap-3 px-4 py-2.5 glass border-t border-ig-border flex-shrink-0">
