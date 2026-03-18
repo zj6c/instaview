@@ -21,6 +21,19 @@ import {
 const MEM = {}
 let memId = 1
 
+// Save messages in background without blocking UI
+async function saveMessagesBackground(convId, msgs, showToast) {
+  try {
+    const total = msgs.length
+    showToast(`☁️ جاري الحفظ… (${total} رسالة)`, 'info')
+    await saveMessages(convId, msgs)
+    showToast(`✅ تم حفظ ${total} رسالة في Supabase`, 'ok')
+  } catch(e) {
+    console.error('Background save error:', e)
+    showToast(`⚠️ حُفظ جزئياً — ${e.message}`, 'warn')
+  }
+}
+
 export default function AppPage() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
@@ -154,7 +167,8 @@ export default function AppPage() {
           // Save to Supabase
           if (hasSupabase) {
             await saveConversation({ id: convId, name: existing.name, titleKey: tk, outName: g.outName || existing.outName })
-            await saveMessages(convId, merged)
+            // Save in background — don't block UI
+            saveMessagesBackground(convId, merged, showToast)
           }
         } else {
           let convId2
@@ -170,7 +184,7 @@ export default function AppPage() {
           setMsgsMap(p => ({ ...p, [convId]: allMsgs }))
           setBlobsMap(p => ({ ...p, [convId]: {} }))
 
-          if (hasSupabase) await saveMessages(convId, allMsgs)
+          if (hasSupabase) saveMessagesBackground(convId, allMsgs, showToast)
         }
         lastId = convId
       }
